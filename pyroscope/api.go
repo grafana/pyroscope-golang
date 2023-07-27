@@ -27,6 +27,7 @@ type Config struct {
 	// Deprecated: the field is ignored and does nothing
 	DisableCumulativeMerge bool
 	HTTPHeaders            map[string]string
+	UseOTLP                bool
 }
 
 type Profiler struct {
@@ -63,7 +64,7 @@ func Start(cfg Config) (*Profiler, error) {
 		Timeout:           30 * time.Second,
 		Logger:            cfg.Logger,
 	}
-	uploader, err := remote.NewRemote(rc)
+	uploader, err := remote.NewRemote(rc, cfg.UseOTLP)
 	if err != nil {
 		return nil, err
 	}

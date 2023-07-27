@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/pyroscope-io/client/pyroscope"
 	"os"
-	"runtime"
 	"runtime/pprof"
+
+	"runtime"
 	"sync"
+
+	"github.com/pyroscope-io/client/pyroscope"
 )
 
 //go:noinline
@@ -43,16 +45,21 @@ func slowFunction(c context.Context, wg *sync.WaitGroup) {
 }
 
 func main() {
+	sa := os.Getenv("SERVER_ADDRESS")
+	if sa == "" {
+		sa = "https://localhost:4317"
+	}
 	runtime.SetMutexProfileFraction(5)
 	runtime.SetBlockProfileRate(5)
 	pyroscope.Start(pyroscope.Config{
 		ApplicationName:   "simple.golang.app-new",
-		ServerAddress:     "http://localhost:4040",
+		ServerAddress:     sa,
 		Logger:            pyroscope.StandardLogger,
 		AuthToken:         os.Getenv("PYROSCOPE_AUTH_TOKEN"),
 		TenantID:          os.Getenv("PYROSCOPE_TENANT_ID"),
 		BasicAuthUser:     os.Getenv("PYROSCOPE_BASIC_AUTH_USER"),
 		BasicAuthPassword: os.Getenv("PYROSCOPE_BASIC_AUTH_PASSWORD"),
+		UseOTLP:           true,
 		ProfileTypes: []pyroscope.ProfileType{
 			pyroscope.ProfileCPU,
 			pyroscope.ProfileInuseObjects,

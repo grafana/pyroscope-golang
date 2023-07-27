@@ -2,6 +2,7 @@ package remote
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +18,11 @@ import (
 	"time"
 
 	"github.com/pyroscope-io/client/upstream"
+	"go.opentelemetry.io/collector/pdata/pprofile"
+	"go.opentelemetry.io/collector/pdata/pprofile/pprofileotlp"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 )
 
 var (
@@ -26,10 +32,11 @@ var (
 const cloudHostnameSuffix = "pyroscope.cloud"
 
 type Remote struct {
-	cfg    Config
-	jobs   chan *upstream.UploadJob
-	client *http.Client
-	logger Logger
+	cfg     Config
+	jobs    chan *upstream.UploadJob
+	client  *http.Client
+	logger  Logger
+	useOTLP bool
 
 	done chan struct{}
 	wg   sync.WaitGroup
@@ -55,7 +62,7 @@ type Logger interface {
 	Errorf(_ string, _ ...interface{})
 }
 
-func NewRemote(cfg Config) (*Remote, error) {
+func NewRemote(cfg Config, useOTLP bool) (*Remote, error) {
 	r := &Remote{
 		cfg:  cfg,
 		jobs: make(chan *upstream.UploadJob, 20),
@@ -73,8 +80,9 @@ func NewRemote(cfg Config) (*Remote, error) {
 			},
 			Timeout: cfg.Timeout,
 		},
-		logger: cfg.Logger,
-		done:   make(chan struct{}),
+		logger:  cfg.Logger,
+		useOTLP: useOTLP,
+		done:    make(chan struct{}),
 	}
 
 	// parse the upstream address
@@ -191,6 +199,24 @@ func (r *Remote) uploadProfile(j *upstream.UploadJob) error {
 	}
 	for k, v := range r.cfg.HTTPHeaders {
 		request.Header.Set(k, v)
+	}
+
+	if r.useOTLP {
+		// TODO: reuse connection
+		cc, err := grpc.Dial(u.Host,
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithBlock())
+		if err != nil {
+			return err
+		}
+		oprof := pprofile.PprofToOprof(j.Profile, "arrays")
+		er := pprofileotlp.NewExportRequestFromProfiles(oprof)
+
+		var header metadata.MD
+		client := pprofileotlp.NewGRPCClient(cc)
+
+		_, err = client.Export(context.Background(), er, grpc.Header(&header))
+		return err
 	}
 
 	// do the request and get the response
